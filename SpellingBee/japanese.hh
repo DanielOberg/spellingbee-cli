@@ -113,7 +113,7 @@ const std::map<const std::string, const std::string> romajiToHiragana {
     {"ju","じゅ"},
     {"nyu","にゅ"},
     {"byu","びゅ"},
-    {"my","みゅ"},
+    {"myu","みゅ"},
     {"gyo","ぎょ"},
     {"jo","じょ"},
     {"nyo","にょ"},
@@ -121,10 +121,8 @@ const std::map<const std::string, const std::string> romajiToHiragana {
     {"myo","みょ"},
     {"rya","りゃ"},
     {"ryu","りゅ"},
-    {"ryu","りょ"}
-};
-
-const std::map<const std::string, const std::string> romajiToKatakana {
+    {"ryo","りょ"},
+    {"xtsu","っ"},
     {"a","ア"},
     {"ka","カ"},
     {"sa","サ"},
