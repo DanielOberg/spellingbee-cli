@@ -171,7 +171,7 @@ std::vector<float> pcmToJpg(std::string filename) {
     
     Aquila::SignalSource buffer(vec_double, 44100);
     uint16_t FRAME_SIZE = 512; // 44100 / 100; // 44100 samples per second
-    uint16_t MFCCS = 40;
+    uint16_t MFCCS = 12;
     
     Aquila::FramesCollection frames(buffer, FRAME_SIZE);
     Aquila::Mfcc mfcc(FRAME_SIZE);
@@ -213,10 +213,12 @@ std::vector<float> pcmToJpg(std::string filename) {
     result(cv::Rect(0,ymin, result.cols,result.rows-ymin)).copyTo(out(cv::Rect(0,0,result.cols,result.rows-ymin)));
 
     cv::Mat1f correctSize;
-    cv::resize(out, correctSize, cv::Size(192, 192));
+    cv::resize(out, correctSize, cv::Size(12, 60), 0, 0, cv::INTER_CUBIC);
+    
+    cv::Mat transposed = correctSize.t();
     
     cv::Mat grayImage;
-    correctSize.convertTo(grayImage, CV_8U, 255.0);
+    transposed.convertTo(grayImage, CV_8U, 255.0);
     
     imwrite( "./jpg/" + filename + ".jpg", grayImage );
     
@@ -260,7 +262,7 @@ int main(int argc, char *argv[])
     boost::locale::generator gen;
     std::locale loc = gen("ja_JP.UTF-8");
     
-//    downloadAll();
+    downloadAll();
     
     auto filenames = glob("./raw/*.pcm");
     

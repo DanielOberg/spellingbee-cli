@@ -43,7 +43,6 @@ void downloadAll() {
         {
             if (it->is_blob())
             {
-                std::cout << "Blob: " << it->as_blob().uri().primary_uri().to_string() << std::endl;
                 // Retrieve reference to a blob named "my-blob-1".
                 azure::storage::cloud_block_blob blockBlob = it->as_blob();
                 
@@ -52,6 +51,9 @@ void downloadAll() {
                 f << it->as_blob().name() << ".pcm," << romanjiAndHiragana.first << std::endl;
                 
                 if (boost::filesystem::exists(path.str())) continue;
+                
+                std::cout << "Blob: " << it->as_blob().uri().primary_uri().to_string() << std::endl;
+
                 
                 // Save blob contents to a file.
                 concurrency::streams::container_buffer<std::vector<int8_t>> buffer;
