@@ -34,8 +34,9 @@
 #include <SFML/Audio.hpp>
 
 #include "aquila/global.h"
+#include "aquila/functions.h"
 #include "aquila/source/FramesCollection.h"
-#include "aquila/transform/Mfcc.h"
+#include "aquila/transform/Spectrogram.h"
 #include "aquila/tools/TextPlot.h"
 #include "aquila/source/window/BarlettWindow.h"
 #include "aquila/source/WaveFile.h"
@@ -174,51 +175,29 @@ std::vector<float> pcmToJpg(std::string filename) {
     uint16_t MFCCS = 12;
     
     Aquila::FramesCollection frames(buffer, FRAME_SIZE);
-    Aquila::Mfcc mfcc(FRAME_SIZE);
-    
-    cv::Mat1f result(0, MFCCS);
-    
-    for (const Aquila::Frame& frame : frames) {
-        auto mfccValues = mfcc.calculate(frame, MFCCS);
-        
-        auto firstMfccs = std::vector<double>(mfccValues.begin(), mfccValues.begin()+MFCCS);
-        
-        cv::Mat1f row = cv::Mat1f::zeros(1, MFCCS);
-        
-        for (int i = 0; i < MFCCS; i++) {
-            row.col(i) = firstMfccs.at(i) / 1;
-        }
-        result.push_back(row);
-    }
-    
-    int ymin = result.rows;
-    int ymax = 0;
-    
-    for (int x = 0; x < result.cols; x++) {
-        for (int y = 0; y < result.rows; y++) {
-            auto pixel = result(y, x);
-            
-            if (pixel > 0.5) {
-                if (y < ymin) {
-                    ymin = y;
-                }
-                
-                if (y > ymax) {
-                    ymax = y;
-                }
-            }
-        }
-    }
-    cv::Mat out = cv::Mat::zeros(result.size(), result.type());
-    result(cv::Rect(0,ymin, result.cols,result.rows-ymin)).copyTo(out(cv::Rect(0,0,result.cols,result.rows-ymin)));
+    Aquila::Spectrogram spectrogram(frames);
 
-    cv::Mat1f correctSize;
-    cv::resize(out, correctSize, cv::Size(12, 60), 0, 0, cv::INTER_CUBIC);
+    cv::Mat1f result= cv::Mat(spectrogram.getFrameCount(), spectrogram.getSpectrumSize() / 2, CV_64F, cvScalar(0.));
     
-    cv::Mat transposed = correctSize.t();
+    for (int x = 0; x < spectrogram.getFrameCount(); ++x)
+    {
+        // output only half of the spectrogram, below Nyquist frequency
+        for (int y = 0; y < spectrogram.getSpectrumSize() / 2; ++y)
+        {
+            Aquila::ComplexType point = spectrogram.getPoint(x, y);
+            float db = Aquila::dB(point) + 200.0;
+            result.at<float>(x, y) = db;
+        }
+    }
+    
+    cv::Mat normalized;
+    cv::normalize(result, normalized, 0, 1, cv::NORM_MINMAX);
+
+    cv::Mat correctSize;
+    cv::resize(normalized, correctSize, cv::Size(44, 256), 0, 0, cv::INTER_CUBIC);
     
     cv::Mat grayImage;
-    transposed.convertTo(grayImage, CV_8U, 255.0);
+    correctSize.convertTo(grayImage, CV_8U, 255);
     
     imwrite( "./jpg/" + filename + ".jpg", grayImage );
     
@@ -262,7 +241,7 @@ int main(int argc, char *argv[])
     boost::locale::generator gen;
     std::locale loc = gen("ja_JP.UTF-8");
     
-    downloadAll();
+//    downloadAll();
     
     auto filenames = glob("./raw/*.pcm");
     
