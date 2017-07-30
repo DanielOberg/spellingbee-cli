@@ -19,6 +19,8 @@
 #include <sstream>
 #include <unordered_set>
 #include <iterator>
+#include <cmath>
+
 
 #include <glob.h>
 #include <vector>
@@ -34,9 +36,8 @@
 #include <SFML/Audio.hpp>
 
 #include "aquila/global.h"
-#include "aquila/functions.h"
 #include "aquila/source/FramesCollection.h"
-#include "aquila/transform/Spectrogram.h"
+#include "aquila/transform/Mfcc.h"
 #include "aquila/tools/TextPlot.h"
 #include "aquila/source/window/BarlettWindow.h"
 #include "aquila/source/WaveFile.h"
@@ -175,38 +176,97 @@ std::vector<float> pcmToJpg(std::string filename) {
     uint16_t MFCCS = 12;
     
     Aquila::FramesCollection frames(buffer, FRAME_SIZE);
-    Aquila::Spectrogram spectrogram(frames);
-
-    cv::Mat1f result= cv::Mat(spectrogram.getFrameCount(), spectrogram.getSpectrumSize() / 2, CV_64F, cvScalar(0.));
+    Aquila::Mfcc mfcc(FRAME_SIZE);
     
-    for (int x = 0; x < spectrogram.getFrameCount(); ++x)
+    cv::Mat1f mfccMat(0, MFCCS);
+    
+    for (const Aquila::Frame& frame : frames) {
+        auto mfccValues = mfcc.calculate(frame, MFCCS);
+        
+        auto firstMfccs = std::vector<double>(mfccValues.begin(), mfccValues.begin()+MFCCS);
+        
+        cv::Mat1f row = cv::Mat1f::zeros(1, MFCCS);
+        
+        for (int i = 0; i < MFCCS; i++) {
+            row.col(i) = firstMfccs.at(i);
+        }
+        mfccMat.push_back(row);
+    }
+    
+    mfccMat = mfccMat.t();
+    
+    cv::Mat1f normalized;
+    
+    cv::normalize(mfccMat, normalized, 1, 0, cv::NORM_MINMAX);
+    
+    cv::Mat1f deltaMfccs(mfccMat.rows, mfccMat.cols);
     {
-        // output only half of the spectrogram, below Nyquist frequency
-        for (int y = 0; y < spectrogram.getSpectrumSize() / 2; ++y)
-        {
-            Aquila::ComplexType point = spectrogram.getPoint(x, y);
-            float db = Aquila::dB(point) + 200.0;
-            result.at<float>(x, y) = db;
+        for (int r = 0; r < mfccMat.rows; r++) {
+            for (int c = 0; c < mfccMat.cols; c++) {
+                int h = (c - 1 == -1)? c : c - 1;
+                int j = (c + 1 == mfccMat.cols)? c : c + 1;
+                
+                double result = std::abs(normalized[r][j] - normalized[r][h]) / 2.0 * 2.0;
+                deltaMfccs[r][c] = result;
+            }
         }
     }
     
-    cv::Mat normalized;
-    cv::normalize(result, normalized, 0, 1, cv::NORM_MINMAX);
-
+//    cv::normalize(deltaMfccs, deltaMfccs, 1, 0, cv::NORM_MINMAX);
+    
+    cv::Mat1f deltaDeltaMfccs(deltaMfccs.rows, deltaMfccs.cols);
+    {
+        for (int r = 0; r < deltaMfccs.rows; r++) {
+            for (int c = 0; c < deltaMfccs.cols; c++) {
+                int h = (c - 1 == -1)? c : c - 1;
+                int j = (c + 1 == deltaMfccs.cols)? c : c + 1;
+                
+                double result = std::abs(deltaMfccs[r][j] - deltaMfccs[r][h]) / 2.0 * 2.0;
+                deltaDeltaMfccs[r][c] = result;
+            }
+        }
+    }
+    
+//    cv::normalize(deltaDeltaMfccs, deltaDeltaMfccs, 1, 0, cv::NORM_MINMAX);
+    
+    cv::Mat concatenated;
+    
+    cv::vconcat(mfccMat, deltaMfccs, concatenated);
+    cv::vconcat(concatenated, deltaDeltaMfccs, concatenated);
+    
+    int ymin = mfccMat.rows;
+    
+    for (int x = 0; x < mfccMat.cols; x++) {
+        for (int y = 0; y < mfccMat.rows; y++) {
+            auto pixel = mfccMat[y][x];
+            
+            if (pixel > 0.20) {
+                if (y < ymin) {
+                    ymin = y;
+                }
+            }
+        }
+    }
+    ymin = 0;
+    cv::Mat out = cv::Mat::zeros(concatenated.size(), concatenated.type());
+    concatenated(cv::Rect(0,ymin, concatenated.cols,concatenated.rows-ymin)).copyTo(out(cv::Rect(0,0,concatenated.cols,concatenated.rows-ymin)));
+    
     cv::Mat correctSize;
-    cv::resize(normalized, correctSize, cv::Size(44, 256), 0, 0, cv::INTER_CUBIC);
+    cv::resize(out, correctSize, cv::Size(44, 36), 0, 0, cv::INTER_CUBIC);
+    
+//    cv::Mat transposed = correctSize.t();
     
     cv::Mat grayImage;
-    correctSize.convertTo(grayImage, CV_8U, 255);
+    correctSize.convertTo(grayImage, CV_8U, 255.0);
     
     imwrite( "./jpg/" + filename + ".jpg", grayImage );
     
     std::vector<float> array;
-    if (correctSize.isContinuous()) {
-        array.assign((float*)correctSize.datastart, (float*)correctSize.dataend);
+    if (grayImage.isContinuous()) {
+        array.assign((float*)grayImage.datastart, (float*)grayImage.dataend);
     } else {
-        for (int i = 0; i < correctSize.rows; ++i) {
-            array.insert(array.end(), (float*)correctSize.ptr<uchar>(i), (float*)correctSize.ptr<uchar>(i)+correctSize.cols);
+        for (int i = 0; i < grayImage.rows; ++i) {
+            array.insert(array.end(), (float*)grayImage.ptr<uchar>(i), (float*)grayImage.ptr<uchar>(i)+grayImage.cols);
         }
     }
     

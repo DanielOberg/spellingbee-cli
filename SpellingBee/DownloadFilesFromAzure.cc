@@ -23,7 +23,7 @@ void downloadAll() {
     
     std::ofstream f("train_list.csv");
     
-    f << "Sample Filename,Phonetics" << std::endl;
+    f << "filename,phonetics" << std::endl;
     
     for (const auto romanjiAndHiragana : romajiToHiragana ) {
         // Retrieve storage account from connection string.
