@@ -172,7 +172,7 @@ std::vector<float> pcmToJpg(std::string filename) {
     }
     
     Aquila::SignalSource buffer(vec_double, 44100);
-    uint16_t FRAME_SIZE = 512; // 44100 / 100; // 44100 samples per second
+    uint16_t FRAME_SIZE = 256; // 44100 / 100; // 44100 samples per second
     uint16_t MFCCS = 12;
     
     Aquila::FramesCollection frames(buffer, FRAME_SIZE);
@@ -188,32 +188,29 @@ std::vector<float> pcmToJpg(std::string filename) {
         cv::Mat1f row = cv::Mat1f::zeros(1, MFCCS);
         
         for (int i = 0; i < MFCCS; i++) {
-            row.col(i) = firstMfccs.at(i);
+            row.col(i) = firstMfccs.at(i) / 0.25;
         }
         mfccMat.push_back(row);
     }
-    
     mfccMat = mfccMat.t();
     
     cv::Mat1f normalized;
+    cv::normalize(mfccMat, normalized, 1, -0.2, cv::NORM_MINMAX);
     
-    cv::normalize(mfccMat, normalized, 1, 0, cv::NORM_MINMAX);
-    
-    cv::Mat1f deltaMfccs(mfccMat.rows, mfccMat.cols);
+    cv::Mat1f deltaMfccs(normalized.rows, normalized.cols);
     {
-        for (int r = 0; r < mfccMat.rows; r++) {
-            for (int c = 0; c < mfccMat.cols; c++) {
+        for (int r = 0; r < normalized.rows; r++) {
+            for (int c = 0; c < normalized.cols; c++) {
                 int h = (c - 1 == -1)? c : c - 1;
-                int j = (c + 1 == mfccMat.cols)? c : c + 1;
+                int j = (c + 1 == normalized.cols)? c : c + 1;
                 
-                double result = std::abs(normalized[r][j] - normalized[r][h]) / 2.0 * 2.0;
+                double result = (normalized[r][j] - normalized[r][h]) / 2.0;
                 deltaMfccs[r][c] = result;
             }
         }
     }
-    
-//    cv::normalize(deltaMfccs, deltaMfccs, 1, 0, cv::NORM_MINMAX);
-    
+    cv::normalize(deltaMfccs, deltaMfccs, 1, -0.2, cv::NORM_MINMAX);
+
     cv::Mat1f deltaDeltaMfccs(deltaMfccs.rows, deltaMfccs.cols);
     {
         for (int r = 0; r < deltaMfccs.rows; r++) {
@@ -221,43 +218,49 @@ std::vector<float> pcmToJpg(std::string filename) {
                 int h = (c - 1 == -1)? c : c - 1;
                 int j = (c + 1 == deltaMfccs.cols)? c : c + 1;
                 
-                double result = std::abs(deltaMfccs[r][j] - deltaMfccs[r][h]) / 2.0 * 2.0;
+                double result = (deltaMfccs[r][j] - deltaMfccs[r][h]) / 2.0;
                 deltaDeltaMfccs[r][c] = result;
             }
         }
     }
-    
-//    cv::normalize(deltaDeltaMfccs, deltaDeltaMfccs, 1, 0, cv::NORM_MINMAX);
-    
+    cv::normalize(deltaDeltaMfccs, deltaDeltaMfccs, 1, -0.2, cv::NORM_MINMAX);
+
     cv::Mat concatenated;
     
     cv::vconcat(mfccMat, deltaMfccs, concatenated);
     cv::vconcat(concatenated, deltaDeltaMfccs, concatenated);
     
-    int ymin = mfccMat.rows;
-    
+    int xmin = mfccMat.cols - 1;
+    int xmax = 0;
     for (int x = 0; x < mfccMat.cols; x++) {
         for (int y = 0; y < mfccMat.rows; y++) {
             auto pixel = mfccMat[y][x];
             
-            if (pixel > 0.20) {
-                if (y < ymin) {
-                    ymin = y;
+            if (pixel > 0.3) {
+                if (x < xmin) {
+                    xmin = x;
+                }
+                if (x > xmax) {
+                    xmax = x;
                 }
             }
         }
     }
-    ymin = 0;
-    cv::Mat out = cv::Mat::zeros(concatenated.size(), concatenated.type());
-    concatenated(cv::Rect(0,ymin, concatenated.cols,concatenated.rows-ymin)).copyTo(out(cv::Rect(0,0,concatenated.cols,concatenated.rows-ymin)));
+    if (xmin + 3 >= xmax) {
+        xmin = 0;
+        xmax = mfccMat.cols - 1;
+    }
     
-    cv::Mat correctSize;
-    cv::resize(out, correctSize, cv::Size(44, 36), 0, 0, cv::INTER_CUBIC);
+    const int MAX_WIDTH = 96;
     
-//    cv::Mat transposed = correctSize.t();
+    if (xmax-xmin > MAX_WIDTH)
+        xmax = xmin + MAX_WIDTH;
+    
+    cv::Mat out = cv::Mat::zeros(concatenated.rows, MAX_WIDTH, concatenated.type());
+    concatenated(cv::Rect(xmin,0, xmax - xmin,concatenated.rows)).copyTo(out(cv::Rect(0,0, xmax - xmin,concatenated.rows)));
     
     cv::Mat grayImage;
-    correctSize.convertTo(grayImage, CV_8U, 255.0);
+    out.convertTo(grayImage, CV_8U, 255.0);
     
     imwrite( "./jpg/" + filename + ".jpg", grayImage );
     
@@ -301,7 +304,7 @@ int main(int argc, char *argv[])
     boost::locale::generator gen;
     std::locale loc = gen("ja_JP.UTF-8");
     
-//    downloadAll();
+    downloadAll();
     
     auto filenames = glob("./raw/*.pcm");
     

@@ -69,7 +69,7 @@ bool soundToImage(Aquila::SignalSource buffer, cv::Mat &resultingImage) {
     Aquila::FramesCollection frames(buffer, FRAME_SIZE);
     Aquila::Mfcc mfcc(FRAME_SIZE);
     
-    cv::Mat1f result(0, MFCCS);
+    cv::Mat1f mfccMat(0, MFCCS);
     
     for (const Aquila::Frame& frame : frames) {
         auto mfccValues = mfcc.calculate(frame, MFCCS);
@@ -79,40 +79,88 @@ bool soundToImage(Aquila::SignalSource buffer, cv::Mat &resultingImage) {
         cv::Mat1f row = cv::Mat1f::zeros(1, MFCCS);
         
         for (int i = 0; i < MFCCS; i++) {
-            row.col(i) = firstMfccs.at(i) / SENSITIVITY;
+            row.col(i) = firstMfccs.at(i);
         }
-        result.push_back(row);
+        mfccMat.push_back(row);
     }
     
-    int ymin = result.rows;
-    int ymax = 0;
+    mfccMat = mfccMat.t();
     
-    for (int x = 0; x < result.cols; x++) {
-        for (int y = 0; y < result.rows; y++) {
-            auto pixel = result(y, x);
-            
-            if (pixel > 0.5) {
-                if (y < ymin) {
-                    ymin = y;
-                }
+    cv::Mat1f normalized;
+    
+    cv::normalize(mfccMat, normalized, 1, 0, cv::NORM_MINMAX);
+    
+    cv::Mat1f deltaMfccs(mfccMat.rows, mfccMat.cols);
+    {
+        for (int r = 0; r < mfccMat.rows; r++) {
+            for (int c = 0; c < mfccMat.cols; c++) {
+                int h = (c - 1 == -1)? c : c - 1;
+                int j = (c + 1 == mfccMat.cols)? c : c + 1;
                 
-                if (y > ymax) {
-                    ymax = y;
+                double result = std::abs(normalized[r][j] - normalized[r][h]) / 2.0 * 2.0;
+                deltaMfccs[r][c] = result;
+            }
+        }
+    }
+    
+    //    cv::normalize(deltaMfccs, deltaMfccs, 1, 0, cv::NORM_MINMAX);
+    
+    cv::Mat1f deltaDeltaMfccs(deltaMfccs.rows, deltaMfccs.cols);
+    {
+        for (int r = 0; r < deltaMfccs.rows; r++) {
+            for (int c = 0; c < deltaMfccs.cols; c++) {
+                int h = (c - 1 == -1)? c : c - 1;
+                int j = (c + 1 == deltaMfccs.cols)? c : c + 1;
+                
+                double result = std::abs(deltaMfccs[r][j] - deltaMfccs[r][h]) / 2.0 * 2.0;
+                deltaDeltaMfccs[r][c] = result;
+            }
+        }
+    }
+    
+    //    cv::normalize(deltaDeltaMfccs, deltaDeltaMfccs, 1, 0, cv::NORM_MINMAX);
+    
+    cv::Mat concatenated;
+    
+    cv::vconcat(mfccMat, deltaMfccs, concatenated);
+    cv::vconcat(concatenated, deltaDeltaMfccs, concatenated);
+    
+    int xmin = mfccMat.cols;
+    int xmax = 0;
+    for (int x = 0; x < mfccMat.cols; x++) {
+        for (int y = 0; y < mfccMat.rows; y++) {
+            auto pixel = mfccMat[y][x];
+            
+            if (pixel > 0.1) {
+                if (x < xmin) {
+                    xmin = x;
+                }
+                if (x > xmax) {
+                    xmax = x;
                 }
             }
         }
     }
-    cv::Mat out = cv::Mat::zeros(result.size(), result.type());
-    result(cv::Rect(0,ymin, result.cols,result.rows-ymin)).copyTo(out(cv::Rect(0,0,result.cols,result.rows-ymin)));
     
-    if (ymax+1 >= result.rows)
-        return false;
+    cv::Mat out = cv::Mat::zeros(concatenated.size(), concatenated.type());
+    out = concatenated(cv::Rect(xmin,0, xmax,concatenated.rows));
     
-    cv::Mat1f correctSize;
-    cv::resize(out(cv::Rect(0, 0, MFCCS, 44)), correctSize, cv::Size(192, 192));
+    cv::Mat correctSize;
+    cv::resize(out, correctSize, cv::Size(36, 36), 0, 0, cv::INTER_CUBIC);
     
     cv::Mat grayImage;
     correctSize.convertTo(grayImage, CV_8U, 255.0);
+    
+    //imwrite( "./jpg/" + filename + ".jpg", grayImage );
+    
+    std::vector<float> array;
+    if (grayImage.isContinuous()) {
+        array.assign((float*)grayImage.datastart, (float*)grayImage.dataend);
+    } else {
+        for (int i = 0; i < grayImage.rows; ++i) {
+            array.insert(array.end(), (float*)grayImage.ptr<uchar>(i), (float*)grayImage.ptr<uchar>(i)+grayImage.cols);
+        }
+    }
     
     resultingImage = grayImage;
     return true;
