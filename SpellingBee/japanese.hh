@@ -258,7 +258,10 @@ const std::map<const std::string, const std::string> romajiToHiragana {
     {"fo","フォ"},
     {"du","ドゥ"},
     {"fyu","フュ"},
-    {"dyu","デュ"}
+    {"dyu","デュ"},
+    {"xtsu","ッ"},
+    {"dash","ー"},
+    {"xxx","xxx"} // noise
 };
 
 
